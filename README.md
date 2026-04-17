@@ -31,5 +31,5 @@
 |_package.json
 |_test.js
 
-README.md
+Readme.md
 package.json
