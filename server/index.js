@@ -13,9 +13,7 @@ const languageConfig = {
   java: { versionIndex: "3" },
 };
 
-
 app.use(cors());
-
 
 app.use(express.json());
 
