@@ -1,0 +1,15 @@
+{
+  "name": "codecollab-root",
+  "version": "1.0.0",
+  "description": "Root management for CodeCollab MERN application",
+  "scripts": {
+    "install-all": "npm install --prefix client && npm install --prefix server",
+    "build": "npm install --prefix client && npm run build --prefix client && npm install --prefix server",
+    "start": "node server/index.js",
+    "dev": "concurrently \"npm start --prefix server\" \"npm start --prefix client\"",
+    "render-postbuild": "npm run install-all && npm run build-client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.1"
+  }
+}

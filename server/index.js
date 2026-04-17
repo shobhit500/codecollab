@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const ACTIONS = require("./Constants");
 const cors = require("cors");
 const axios = require("axios");
+const path = require("path");
 const server = http.createServer(app);
 require("dotenv").config();
 
@@ -19,7 +20,7 @@ app.use(express.json());
 
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
@@ -122,6 +123,11 @@ app.post("/compile", async (req, res) => {
     console.error("Compilation error:", error.response ? error.response.data : error.message);
     res.status(500).json({ error: error.response?.data?.error || "Failed to compile code" });
   }
+});
+
+app.use(express.static(path.join(__dirname, "../client/build")));
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "../client/build", "index.html"));
 });
 
 const PORT = process.env.PORT || 5000;
