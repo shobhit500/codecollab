@@ -21,3 +21,15 @@
 |_README.md
 |_package-lock.json
 |_package.json
+
+=>server
+|_node_modules
+|_.gitignore
+|_Constants.js
+|_index.js
+|_package-lock.json
+|_package.json
+|_test.js
+
+README.md
+package.json
