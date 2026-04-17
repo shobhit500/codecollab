@@ -1,6 +1,6 @@
 # CodeCollab - Collaborative Code Editor
 
-CodeCollab is a powerful real-time code collaboration environment. It empowers teams to work together seamlessly in a shared virtual workspace. Built on the MERN stack (MongoDB, Express.js, React, Node.js) with Socket.IO providing low-latency, real-time synchronization.
+CodeCollab is a powerful real-time code collaboration environment. It empowers teams to work together seamlessly in a shared virtual workspace. Built on the **ERN stack (Express.js, React, Node.js)** with **Socket.IO** providing low-latency, real-time synchronization.
 
 ## Features
 
