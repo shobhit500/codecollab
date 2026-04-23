@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Client from "./Client";
 import Editor from "./Editor";
+import Whiteboard from "./Whiteboard";
 import { initSocket } from "../Socket";
 import { ACTIONS } from "../Constants";
 import {
@@ -30,6 +31,9 @@ function EditorPage() {
   const [isCompiling, setIsCompiling] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState("python3");
   const codeRef = useRef(null);
+  const pathsRef = useRef([]);
+  const [isSocketInitialized, setIsSocketInitialized] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(true);
 
   const Location = useLocation();
   const navigate = useNavigate();
@@ -41,6 +45,7 @@ function EditorPage() {
   useEffect(() => {
     const init = async () => {
       socketRef.current = await initSocket();
+      setIsSocketInitialized(true);
       socketRef.current.on("connect_error", (err) => handleErrors(err));
       socketRef.current.on("connect_failed", (err) => handleErrors(err));
 
@@ -66,6 +71,11 @@ function EditorPage() {
             code: codeRef.current,
             socketId,
           });
+          socketRef.current.emit(ACTIONS.SYNC_BOARD, {
+            paths: pathsRef.current,
+            isOpen: isWhiteboardOpen,
+            socketId,
+          });
         }
       );
 
@@ -75,6 +85,9 @@ function EditorPage() {
           return prev.filter((client) => client.socketId !== socketId);
         });
       });
+      socketRef.current.on(ACTIONS.TOGGLE_WHITEBOARD, ({ isOpen }) => {
+        setIsWhiteboardOpen(isOpen);
+      });
     };
     init();
 
@@ -82,6 +95,7 @@ function EditorPage() {
       socketRef.current && socketRef.current.disconnect();
       socketRef.current.off(ACTIONS.JOINED);
       socketRef.current.off(ACTIONS.DISCONNECTED);
+      socketRef.current.off(ACTIONS.TOGGLE_WHITEBOARD);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -107,7 +121,8 @@ function EditorPage() {
   const runCode = async () => {
     setIsCompiling(true);
     try {
-      const response = await axios.post("/compile", {
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
+      const response = await axios.post(`${backendUrl}/compile`, {
         code: codeRef.current,
         language: selectedLanguage,
       });
@@ -125,14 +140,22 @@ function EditorPage() {
     setIsCompileWindowOpen(!isCompileWindowOpen);
   };
 
+  const toggleWhiteboard = () => {
+    const newState = !isWhiteboardOpen;
+    setIsWhiteboardOpen(newState);
+    if (socketRef.current) {
+      socketRef.current.emit(ACTIONS.TOGGLE_WHITEBOARD, { roomId, isOpen: newState });
+    }
+  };
+
   return (
     <div className="container-fluid vh-100 d-flex flex-column">
       <div className="row flex-grow-1">
 
         <div className="col-md-2 bg-dark text-light d-flex flex-column">
           <img
-            src="/images/code%20cast.png"
-            alt="Logo"
+            src="/images/codecollab.png"
+            alt="CodeCollab Logo"
             className="img-fluid mx-auto"
             style={{ maxWidth: "150px", marginTop: "1rem" }}
           />
@@ -158,10 +181,15 @@ function EditorPage() {
           </div>
         </div>
 
+        <div className={`col-md-${isWhiteboardOpen ? '7' : '10'} text-light d-flex flex-column p-0`} style={{transition: 'all 0.3s'}}>
 
-        <div className="col-md-10 text-light d-flex flex-column">
-
-          <div className="bg-dark p-2 d-flex justify-content-end">
+          <div className="bg-dark p-2 d-flex justify-content-between align-items-center border-bottom border-secondary">
+            <button 
+              className={`btn btn-sm ${isWhiteboardOpen ? 'btn-outline-danger' : 'btn-outline-info'}`}
+              onClick={toggleWhiteboard}
+            >
+              {isWhiteboardOpen ? "Close Whiteboard" : "Open Whiteboard"}
+            </button>
             <select
               className="form-select w-auto"
               value={selectedLanguage}
@@ -175,29 +203,47 @@ function EditorPage() {
             </select>
           </div>
 
-          <Editor
-            socketRef={socketRef}
-            roomId={roomId}
-            onCodeChange={(code) => {
-              codeRef.current = code;
-            }}
-            language={selectedLanguage}
-            boilerplate={BOILERPLATES[selectedLanguage]}
-            allBoilerplates={Object.values(BOILERPLATES)}
-          />
+          <div className="flex-grow-1 overflow-hidden">
+            {isSocketInitialized && (
+              <Editor
+                socketRef={socketRef}
+                roomId={roomId}
+                onCodeChange={(code) => {
+                  codeRef.current = code;
+                }}
+                language={selectedLanguage}
+                boilerplate={BOILERPLATES[selectedLanguage]}
+                allBoilerplates={Object.values(BOILERPLATES)}
+              />
+            )}
+          </div>
+          
+          {/* Compiler Toggle Button placed within Editor column */}
+          <div className="bg-dark p-2 border-top border-secondary d-flex justify-content-end">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={toggleCompileWindow}
+            >
+              {isCompileWindowOpen ? "Close Compiler" : "Open Compiler"}
+            </button>
+          </div>
         </div>
+
+        {isWhiteboardOpen && (
+          <div className="col-md-3 p-0" style={{transition: 'all 0.3s'}}>
+            {isSocketInitialized && (
+              <Whiteboard 
+                socketRef={socketRef} 
+                roomId={roomId} 
+                onPathsChange={(paths) => { pathsRef.current = paths; }} 
+                initialPaths={pathsRef.current}
+              />
+            )}
+          </div>
+        )}
       </div>
 
-
-      <button
-        className="btn btn-primary position-fixed bottom-0 end-0 m-3"
-        onClick={toggleCompileWindow}
-        style={{ zIndex: 1050 }}
-      >
-        {isCompileWindowOpen ? "Close Compiler" : "Open Compiler"}
-      </button>
-
-
+      {/* Compiler Output Window */}
       <div
         className={`bg-dark text-light p-3 ${
           isCompileWindowOpen ? "d-block" : "d-none"

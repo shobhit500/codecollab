@@ -6,8 +6,15 @@ const ACTIONS = require("./Constants");
 const cors = require("cors");
 const axios = require("axios");
 const path = require("path");
+const mongoose = require("mongoose");
+const Session = require("./models/Session");
 const server = http.createServer(app);
 require("dotenv").config();
+
+// Connect to MongoDB
+mongoose.connect("mongodb://localhost:27017/codecast")
+  .then(() => console.log("Connected to MongoDB successfully"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 const languageConfig = {
   python3: { versionIndex: "3" },
@@ -39,8 +46,19 @@ const getUsersInRoom = (roomId) => {
 
 io.on("connection", (socket) => {
 
-  socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
+  socket.on(ACTIONS.JOIN, async ({ roomId, username }) => {
     activeSessions[socket.id] = username;
+
+    try {
+      await Session.create({
+        sessionId: socket.id,
+        username,
+        roomId
+      });
+    } catch (err) {
+      console.error("Error saving session to DB:", err);
+    }
+
     socket.join(roomId);
     const clients = getUsersInRoom(roomId);
 
@@ -62,8 +80,23 @@ io.on("connection", (socket) => {
     io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
   });
 
+  socket.on(ACTIONS.DRAWING, ({ roomId, paths }) => {
+    socket.in(roomId).emit(ACTIONS.DRAWING, { paths });
+  });
 
-  socket.on("disconnecting", () => {
+  socket.on(ACTIONS.SYNC_BOARD, ({ socketId, paths, isOpen }) => {
+    io.to(socketId).emit(ACTIONS.DRAWING, { paths });
+    if (isOpen !== undefined) {
+      io.to(socketId).emit(ACTIONS.TOGGLE_WHITEBOARD, { isOpen });
+    }
+  });
+
+  socket.on(ACTIONS.TOGGLE_WHITEBOARD, ({ roomId, isOpen }) => {
+    socket.in(roomId).emit(ACTIONS.TOGGLE_WHITEBOARD, { isOpen });
+  });
+
+
+  socket.on("disconnecting", async () => {
     const rooms = [...socket.rooms];
 
     rooms.forEach((roomId) => {
@@ -72,6 +105,12 @@ io.on("connection", (socket) => {
         username: activeSessions[socket.id],
       });
     });
+
+    try {
+      await Session.deleteOne({ sessionId: socket.id });
+    } catch (err) {
+      console.error("Error removing session from DB:", err);
+    }
 
     delete activeSessions[socket.id];
     socket.leave();
