@@ -35,6 +35,46 @@ function EditorPage() {
   const [isSocketInitialized, setIsSocketInitialized] = useState(false);
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(true);
 
+  // Resizing state
+  const [whiteboardWidth, setWhiteboardWidth] = useState(400);
+  const [isDraggingState, setIsDraggingState] = useState(false);
+  const isDragging = useRef(false);
+
+  const handleMouseMove = useRef((e) => {
+    if (!isDragging.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    if (newWidth >= 200 && newWidth <= window.innerWidth * 0.8) {
+      setWhiteboardWidth(newWidth);
+    }
+  }).current;
+
+  const handleMouseUp = useRef(() => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      setIsDraggingState(false);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = 'default';
+    }
+  }).current;
+
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    isDragging.current = true;
+    setIsDraggingState(true);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+  };
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = 'default';
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
   const Location = useLocation();
   const navigate = useNavigate();
   const { roomId } = useParams();
@@ -66,16 +106,18 @@ function EditorPage() {
           if (username !== Location.state?.username) {
             toast.success(`${username} joined the room.`);
           }
+          if (socketId !== socketRef.current.id) {
+            socketRef.current.emit(ACTIONS.SYNC_CODE, {
+              code: codeRef.current,
+              socketId,
+            });
+            socketRef.current.emit(ACTIONS.SYNC_BOARD, {
+              paths: pathsRef.current,
+              isOpen: isWhiteboardOpen,
+              socketId,
+            });
+          }
           setClients(clients);
-          socketRef.current.emit(ACTIONS.SYNC_CODE, {
-            code: codeRef.current,
-            socketId,
-          });
-          socketRef.current.emit(ACTIONS.SYNC_BOARD, {
-            paths: pathsRef.current,
-            isOpen: isWhiteboardOpen,
-            socketId,
-          });
         }
       );
 
@@ -149,10 +191,10 @@ function EditorPage() {
   };
 
   return (
-    <div className="container-fluid vh-100 d-flex flex-column">
-      <div className="row flex-grow-1">
+    <div className="container-fluid p-0 vh-100 d-flex flex-column overflow-hidden">
+      <div className="d-flex flex-md-row flex-column flex-grow-1 overflow-hidden">
 
-        <div className="col-md-2 bg-dark text-light d-flex flex-column">
+        <div className="col-md-2 bg-dark text-light d-flex flex-column border-end border-secondary" style={{ zIndex: 2 }}>
           <img
             src="/images/codecollab.png"
             alt="CodeCollab Logo"
@@ -181,7 +223,7 @@ function EditorPage() {
           </div>
         </div>
 
-        <div className={`col-md-${isWhiteboardOpen ? '7' : '10'} text-light d-flex flex-column p-0`} style={{transition: 'all 0.3s'}}>
+        <div className="text-light d-flex flex-column p-0 flex-grow-1" style={{ transition: isDraggingState ? 'none' : 'all 0.3s', minWidth: '300px' }}>
 
           <div className="bg-dark p-2 d-flex justify-content-between align-items-center border-bottom border-secondary">
             <button 
@@ -230,7 +272,28 @@ function EditorPage() {
         </div>
 
         {isWhiteboardOpen && (
-          <div className="col-md-3 p-0" style={{transition: 'all 0.3s'}}>
+          <div 
+            onMouseDown={handleMouseDown}
+            style={{
+              width: "6px",
+              cursor: "col-resize",
+              backgroundColor: "#2c2e33",
+              borderLeft: "1px solid #444",
+              borderRight: "1px solid #444",
+              zIndex: 10
+            }}
+            className="resizer-handle d-none d-md-block"
+            title="Drag to resize"
+          />
+        )}
+
+        {isWhiteboardOpen && (
+          <div className="p-0" style={{ 
+            width: `${whiteboardWidth}px`, 
+            transition: isDraggingState ? 'none' : 'width 0.3s', 
+            minWidth: '200px',
+            flexShrink: 0
+          }}>
             {isSocketInitialized && (
               <Whiteboard 
                 socketRef={socketRef} 

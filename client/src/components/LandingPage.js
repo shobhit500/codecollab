@@ -5,10 +5,7 @@ import "./LandingPage.css";
 function LandingPage() {
   const navigate = useNavigate();
 
-  const handleAuthClick = (e) => {
-    e.preventDefault();
-    navigate("/join");
-  };
+
 
   return (
     <div className="landing-container">
@@ -20,10 +17,10 @@ function LandingPage() {
         </Link>
         
         <div className="nav-links">
-          <Link to="/about">About📚</Link>
-          <Link to="/how-it-works">How it works❓</Link>
-          <Link to="/faqs">FAQs❓</Link>
-          <Link to="/">Home🏠</Link>
+          <Link to="/about">About</Link>
+          <Link to="/how-it-works">How it works</Link>
+          <Link to="/faqs">FAQs</Link>
+          <Link to="/">Home</Link>
         </div>
 
         <div className="nav-actions">

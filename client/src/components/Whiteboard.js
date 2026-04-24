@@ -5,70 +5,101 @@ import { ACTIONS } from "../Constants";
 const Whiteboard = ({ socketRef, roomId, onPathsChange, initialPaths }) => {
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const isUpdatingFromSocket = useRef(false);
-  const [activeTool, setActiveTool] = useState("freedraw");
+  const updateTimeoutRef = useRef(null);
   const [strokeColor, setStrokeColor] = useState("#a5b4fc");
 
-  useEffect(() => {
-    if (socketRef.current && excalidrawAPI) {
-      socketRef.current.on(ACTIONS.DRAWING, ({ paths }) => {
-        if (paths && paths.length > 0) {
-          isUpdatingFromSocket.current = true;
-          excalidrawAPI.updateScene({ elements: paths });
-          setTimeout(() => { isUpdatingFromSocket.current = false; }, 100);
-        }
-      });
-    }
+  const lastVersion = useRef(0);
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off(ACTIONS.DRAWING);
+  const getElementsVersion = (elements) => {
+    if (!elements) return 0;
+    let sum = 0;
+    for (let i = 0; i < elements.length; i++) {
+      sum += elements[i].version || 0;
+    }
+    return sum + elements.length;
+  };
+
+  const emitTimeoutRef = useRef(null);
+  const lastEmitTime = useRef(0);
+  const THROTTLE_MS = 100;
+
+  const pendingPathsRef = useRef(null);
+  const onPathsChangeRef = useRef(onPathsChange);
+
+  useEffect(() => {
+    onPathsChangeRef.current = onPathsChange;
+  }, [onPathsChange]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const handleDrawing = ({ paths }) => {
+      if (Array.isArray(paths)) {
+        if (!excalidrawAPI) {
+          // API not ready, store pending paths
+          pendingPathsRef.current = paths;
+          return;
+        }
+
+        isUpdatingFromSocket.current = true;
+        
+        if (onPathsChangeRef.current) {
+          onPathsChangeRef.current(paths);
+        }
+        
+        excalidrawAPI.updateScene({ elements: paths, commitToHistory: false });
+        
+        if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = setTimeout(() => {
+          isUpdatingFromSocket.current = false;
+        }, 100);
       }
     };
+
+    socket.on(ACTIONS.DRAWING, handleDrawing);
+
+    return () => {
+      socket.off(ACTIONS.DRAWING, handleDrawing);
+    };
   }, [socketRef, excalidrawAPI]);
+
+  useEffect(() => {
+    if (excalidrawAPI && pendingPathsRef.current) {
+      const paths = pendingPathsRef.current;
+      pendingPathsRef.current = null;
+      
+      isUpdatingFromSocket.current = true;
+      if (onPathsChangeRef.current) onPathsChangeRef.current(paths);
+
+      excalidrawAPI.updateScene({ elements: paths, commitToHistory: false });
+      
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        isUpdatingFromSocket.current = false;
+      }, 100);
+    }
+  }, [excalidrawAPI]);
 
   const handleChange = (elements, appState) => {
     if (isUpdatingFromSocket.current) return;
     
-    if (onPathsChange) {
-      onPathsChange(elements);
+    if (onPathsChangeRef.current) {
+      onPathsChangeRef.current(elements);
     }
 
     if (socketRef.current) {
-      socketRef.current.emit(ACTIONS.DRAWING, { roomId, paths: elements });
-    }
-  };
-
-  const setTool = (tool) => {
-    setActiveTool(tool);
-    if (excalidrawAPI) {
-      const targetTool = tool === 'highlighter' ? 'freedraw' : tool;
-      
-      // Attempt to use the explicit setActiveTool method if it exists
-      if (typeof excalidrawAPI.setActiveTool === 'function') {
-        excalidrawAPI.setActiveTool({ type: targetTool });
+      const now = Date.now();
+      if (now - lastEmitTime.current >= THROTTLE_MS) {
+        socketRef.current.emit(ACTIONS.DRAWING, { roomId, paths: elements });
+        lastEmitTime.current = now;
       } else {
-        // Fallback for older versions
-        excalidrawAPI.updateScene({ appState: { activeTool: { type: targetTool, customType: null } } });
+        if (emitTimeoutRef.current) clearTimeout(emitTimeoutRef.current);
+        emitTimeoutRef.current = setTimeout(() => {
+          socketRef.current.emit(ACTIONS.DRAWING, { roomId, paths: elements });
+          lastEmitTime.current = Date.now();
+        }, THROTTLE_MS);
       }
-      
-      // Update specific styling properties based on the tool
-      if (tool === 'highlighter') {
-        excalidrawAPI.updateScene({ appState: { currentItemOpacity: 40, currentItemStrokeWidth: 6 } });
-      } else if (tool === 'freedraw') {
-        excalidrawAPI.updateScene({ appState: { currentItemOpacity: 100, currentItemStrokeWidth: 2 } });
-      }
-    }
-  };
-
-  const handleUndo = () => {
-    if (excalidrawAPI && excalidrawAPI.actionManager) {
-      excalidrawAPI.actionManager.executeAction("undo");
-    }
-  };
-
-  const handleRedo = () => {
-    if (excalidrawAPI && excalidrawAPI.actionManager) {
-      excalidrawAPI.actionManager.executeAction("redo");
     }
   };
 
@@ -80,23 +111,8 @@ const Whiteboard = ({ socketRef, roomId, onPathsChange, initialPaths }) => {
     }
   };
 
-
-
-  const ToolBtn = ({ tool, icon, label }) => (
-    <button
-      className={`btn btn-sm mb-2 w-100 ${activeTool === tool ? "btn-primary" : "btn-outline-secondary text-light"}`}
-      onClick={() => setTool(tool)}
-      title={label}
-      style={{ fontSize: "1.2rem", padding: "0.4rem 0" }}
-    >
-      {icon}
-    </button>
-  );
-
-
-
   return (
-    <div className="d-flex h-100 bg-dark border-start border-secondary whiteboard-container">
+    <div className="d-flex flex-column h-100 bg-dark border-start border-secondary whiteboard-container">
       <style>
         {`
           /* Hide Excalidraw top taskbars and default tools */
@@ -104,8 +120,31 @@ const Whiteboard = ({ socketRef, roomId, onPathsChange, initialPaths }) => {
           .whiteboard-container .excalidraw .layer-ui__wrapper header {
             display: none !important;
           }
+          /* Custom scrollbar hiding */
+          .custom-toolbar::-webkit-scrollbar {
+            display: none;
+          }
+          .custom-toolbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
         `}
       </style>
+      {/* Custom Top Horizontal Toolbar */}
+      <div className="d-flex flex-row align-items-center p-2 bg-dark border-bottom border-secondary position-relative custom-toolbar w-100" style={{ zIndex: 10, overflowX: "auto", overflowY: "hidden", whiteSpace: "nowrap" }}>
+        <div className="d-flex align-items-center flex-shrink-0 ms-2">
+          <label className="text-secondary me-2 mb-0" style={{ fontSize: "0.8rem" }}>Color</label>
+          <input 
+            type="color" 
+            value={strokeColor} 
+            onChange={handleStrokeColorChange} 
+            className="form-control form-control-color p-0 border-0"
+            style={{ width: "28px", height: "28px", cursor: "pointer" }}
+            title="Stroke Color"
+          />
+        </div>
+      </div>
+
       <div className="flex-grow-1 position-relative" style={{ minHeight: "600px", zIndex: 1 }}>
         <Excalidraw
           excalidrawAPI={(api) => setExcalidrawAPI(api)}
@@ -118,51 +157,10 @@ const Whiteboard = ({ socketRef, roomId, onPathsChange, initialPaths }) => {
               theme: "dark", 
               viewBackgroundColor: "#1e1e1e",
               currentItemStrokeColor: strokeColor,
+              activeTool: { type: "freedraw", customType: null }
             },
           }}
         />
-      </div>
-      
-      {/* Custom Right Vertical Toolbar */}
-      <div className="d-flex flex-column align-items-center p-2 bg-dark border-start border-secondary position-relative" style={{ width: "60px", zIndex: 10 }}>
-        <div className="mb-3 text-info fw-bold" style={{ fontSize: "0.7rem", textAlign: "center", marginTop: "10px" }}>Tools</div>
-        
-        <ToolBtn tool="freedraw" icon="✏️" label="Pen" />
-        <ToolBtn tool="highlighter" icon="🖍️" label="Highlighter" />
-        <ToolBtn tool="eraser" icon="🧼" label="Eraser" />
-        
-        <hr className="w-100 border-secondary my-1" />
-        
-        <button
-          className="btn btn-sm mb-2 w-100 btn-outline-secondary text-light"
-          onClick={handleUndo}
-          title="Undo"
-          style={{ fontSize: "1.2rem", padding: "0.4rem 0" }}
-        >
-          ↩️
-        </button>
-        <button
-          className="btn btn-sm mb-2 w-100 btn-outline-secondary text-light"
-          onClick={handleRedo}
-          title="Redo"
-          style={{ fontSize: "1.2rem", padding: "0.4rem 0" }}
-        >
-          ↪️
-        </button>
-
-        <hr className="w-100 border-secondary my-1" />
-        
-        <div className="mb-2 w-100 text-center">
-          <label className="text-secondary" style={{ fontSize: "0.6rem", marginBottom: "2px" }}>Color</label>
-          <input 
-            type="color" 
-            value={strokeColor} 
-            onChange={handleStrokeColorChange} 
-            className="form-control form-control-color p-0 border-0 mx-auto"
-            style={{ width: "24px", height: "24px", cursor: "pointer" }}
-            title="Stroke Color"
-          />
-        </div>
       </div>
     </div>
   );
